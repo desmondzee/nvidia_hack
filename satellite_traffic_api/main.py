@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import os
 from contextlib import asynccontextmanager
 
 import httpx
@@ -9,12 +10,13 @@ from satellite_traffic_api.config import settings
 from satellite_traffic_api.cache.memory_backend import MemoryCacheBackend
 from satellite_traffic_api.adapters.celestrak import CelesTrakAdapter
 from satellite_traffic_api.adapters.spacetrack import SpaceTrackAdapter
+from satellite_traffic_api.adapters.scenario_adapter import ScenarioAdapter, ScenarioState
 from satellite_traffic_api.adapters.noaa_space_weather import NOAASpaceWeatherAdapter
 from satellite_traffic_api.adapters.propagator import PropagatorAdapter
 from satellite_traffic_api.adapters.nrlmsise import NRLMSISEAdapter
 from satellite_traffic_api.adapters.ground_station import GroundStationAdapter
 from satellite_traffic_api.aggregator.context_builder import SatelliteContextBuilder
-from satellite_traffic_api.routers import context, orbital, conjunctions, space_weather, ground_stations
+from satellite_traffic_api.routers import context, orbital, conjunctions, space_weather, ground_stations, scenarios
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -23,7 +25,6 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- Startup ---
-    # Cache backend
     if settings.has_redis:
         try:
             from satellite_traffic_api.cache.redis_backend import RedisCacheBackend
@@ -36,53 +37,55 @@ async def lifespan(app: FastAPI):
         logger.info("No REDIS_URL configured — using in-memory cache")
         cache = MemoryCacheBackend()
 
-    # Shared HTTP client
     http_client = httpx.AsyncClient(
         headers={"User-Agent": "SatelliteTrafficAPI/1.0"},
         follow_redirects=True,
     )
 
-    # Adapters
-    celestrak = CelesTrakAdapter(settings, cache, http_client)
-    noaa = NOAASpaceWeatherAdapter(settings, cache, http_client)
-    propagator = PropagatorAdapter(settings, cache)
-    nrlmsise = NRLMSISEAdapter(settings, cache)
+    celestrak     = CelesTrakAdapter(settings, cache, http_client)
+    noaa          = NOAASpaceWeatherAdapter(settings, cache, http_client)
+    propagator    = PropagatorAdapter(settings, cache)
+    nrlmsise      = NRLMSISEAdapter(settings, cache)
     ground_station = GroundStationAdapter(settings, cache)
 
-    spacetrack = None
-    if settings.has_space_track:
-        spacetrack = SpaceTrackAdapter(settings, cache, http_client)
+    # Conjunction adapter: scenario mode takes priority over Space-Track
+    scenario_id = os.environ.get("SCENARIO_MODE", "").strip()
+    conjunction_adapter = None
+
+    if scenario_id:
+        conjunction_adapter = ScenarioAdapter(settings, cache, scenario_id)
+        logger.info("SCENARIO MODE: using synthetic conjunctions from '%s'", scenario_id)
+    elif settings.has_space_track:
+        conjunction_adapter = SpaceTrackAdapter(settings, cache, http_client)
         logger.info("Space-Track adapter enabled for user: %s", settings.space_track_user)
     else:
         logger.warning(
-            "Space-Track credentials not set — conjunction data will be unavailable. "
-            "Set SPACE_TRACK_USER and SPACE_TRACK_PASSWORD in .env"
+            "No conjunction source configured — set SCENARIO_MODE=hero_collision "
+            "or set SPACE_TRACK_USER + SPACE_TRACK_PASSWORD"
         )
 
-    # Context builder
     builder = SatelliteContextBuilder(
         celestrak=celestrak,
-        spacetrack=spacetrack,
+        spacetrack=conjunction_adapter,
         noaa=noaa,
         propagator=propagator,
         nrlmsise=nrlmsise,
         ground_station=ground_station,
     )
 
-    # Attach to app state
-    app.state.cache = cache
-    app.state.celestrak = celestrak
-    app.state.spacetrack = spacetrack
-    app.state.noaa = noaa
-    app.state.propagator = propagator
-    app.state.nrlmsise = nrlmsise
-    app.state.ground_station = ground_station
-    app.state.context_builder = builder
+    app.state.cache              = cache
+    app.state.celestrak          = celestrak
+    app.state.spacetrack         = conjunction_adapter
+    app.state.noaa               = noaa
+    app.state.propagator         = propagator
+    app.state.nrlmsise           = nrlmsise
+    app.state.ground_station     = ground_station
+    app.state.context_builder    = builder
+    app.state.scenario_id        = scenario_id or None
 
     logger.info("Satellite Traffic API started")
     yield
 
-    # --- Shutdown ---
     await http_client.aclose()
     await cache.close()
     logger.info("Satellite Traffic API shut down")
@@ -99,10 +102,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(context.router, prefix="/v1")
-app.include_router(orbital.router, prefix="/v1")
-app.include_router(conjunctions.router, prefix="/v1")
-app.include_router(space_weather.router, prefix="/v1")
+app.include_router(context.router,        prefix="/v1")
+app.include_router(scenarios.router,      prefix="/v1")
+app.include_router(orbital.router,        prefix="/v1")
+app.include_router(conjunctions.router,   prefix="/v1")
+app.include_router(space_weather.router,  prefix="/v1")
 app.include_router(ground_stations.router, prefix="/v1")
 
 
@@ -110,8 +114,37 @@ app.include_router(ground_stations.router, prefix="/v1")
 async def health():
     return {
         "status": "ok",
-        "space_track_enabled": app.state.spacetrack is not None,
+        "scenario_mode": app.state.scenario_id,
+        "space_track_enabled": (
+            app.state.spacetrack is not None and app.state.scenario_id is None
+        ),
     }
+
+
+@app.post("/v1/demo/step/advance")
+async def advance_demo_step():
+    """Advance the demo to the next scenario step."""
+    state = ScenarioState.get()
+    new_step = state.advance()
+    # Bust conjunction cache so new step is picked up immediately
+    if app.state.scenario_id:
+        await app.state.cache.delete(
+            f"scenario:{app.state.scenario_id}:step:{new_step - 1}:{25544}"
+        )
+    return {"step": new_step}
+
+
+@app.post("/v1/demo/step/reset")
+async def reset_demo_step():
+    """Reset demo back to step 1."""
+    ScenarioState.get().reset()
+    return {"step": 1}
+
+
+@app.get("/v1/demo/step")
+async def get_demo_step():
+    """Get the current demo step."""
+    return {"step": ScenarioState.get().current_step}
 
 
 @app.get("/v1/tools")

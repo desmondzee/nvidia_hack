@@ -30,7 +30,7 @@ def _run_nrlmsise(
 ) -> dict:
     try:
         from nrlmsise00 import msise_model
-        result = msise_model(dt, alt_km, lat_deg, lon_deg, f107a, f107, [ap] * 7)
+        result = msise_model(dt, alt_km, lat_deg, lon_deg, f107a, f107, ap)
         # result[0] = densities array, result[1] = temperatures
         d = result[0]   # [He, O, N2, O2, AR, total, H, N, anomO] in cm^-3 except total in g/cm^3
         t = result[1]   # [exospheric_T, local_T]

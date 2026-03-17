@@ -1,8 +1,10 @@
 from __future__ import annotations
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any
 import httpx
+from sgp4.api import Satrec
 from .base import BaseAdapter
 from satellite_traffic_api.cache.backend import CacheBackend
 from satellite_traffic_api.config import Settings
@@ -11,37 +13,63 @@ from satellite_traffic_api.models.orbital import TLERecord
 logger = logging.getLogger(__name__)
 
 
-def _parse_gp_record(rec: dict) -> TLERecord:
-    """Parse a CelesTrak GP JSON record into a TLERecord."""
-    epoch_str = rec.get("EPOCH", "")
-    try:
-        epoch = datetime.fromisoformat(epoch_str.replace("Z", "+00:00"))
-    except Exception:
-        epoch = datetime.now(timezone.utc)
+def _parse_tle_text(text: str) -> list[TLERecord]:
+    """Parse a multi-TLE text block (3-line format) into TLERecords."""
+    records = []
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    i = 0
+    while i < len(lines):
+        # Each group: name, line1, line2
+        if i + 2 >= len(lines) and not (lines[i].startswith("1 ") or lines[i].startswith("2 ")):
+            break
+        # Name line (not starting with 1 or 2)
+        if not lines[i].startswith("1 ") and not lines[i].startswith("2 "):
+            name = lines[i]
+            line1 = lines[i + 1] if i + 1 < len(lines) else ""
+            line2 = lines[i + 2] if i + 2 < len(lines) else ""
+            i += 3
+        else:
+            name = "UNKNOWN"
+            line1 = lines[i]
+            line2 = lines[i + 1] if i + 1 < len(lines) else ""
+            i += 2
 
-    return TLERecord(
-        norad_cat_id=int(rec.get("NORAD_CAT_ID", 0)),
-        object_name=rec.get("OBJECT_NAME", "UNKNOWN").strip(),
-        object_id=rec.get("OBJECT_ID", ""),
-        epoch=epoch,
-        mean_motion=float(rec.get("MEAN_MOTION", 0)),
-        eccentricity=float(rec.get("ECCENTRICITY", 0)),
-        inclination_deg=float(rec.get("INCLINATION", 0)),
-        raan_deg=float(rec.get("RA_OF_ASC_NODE", 0)),
-        arg_of_perigee_deg=float(rec.get("ARG_OF_PERICENTER", 0)),
-        mean_anomaly_deg=float(rec.get("MEAN_ANOMALY", 0)),
-        bstar=float(rec.get("BSTAR", 0)),
-        mean_motion_dot=float(rec.get("MEAN_MOTION_DOT", 0)),
-        mean_motion_ddot=float(rec.get("MEAN_MOTION_DDOT", 0)),
-        element_set_no=int(rec.get("ELEMENT_SET_NO", 0)),
-        rev_at_epoch=int(rec.get("REV_AT_EPOCH", 0)),
-        line1=rec.get("TLE_LINE1", ""),
-        line2=rec.get("TLE_LINE2", ""),
-    )
+        if not line1.startswith("1 ") or not line2.startswith("2 "):
+            continue
+
+        try:
+            sat = Satrec.twoline2rv(line1, line2)
+            # Convert sgp4 epoch (days from 1949-12-31) to datetime
+            jd = sat.jdsatepoch + sat.jdsatepochF
+            epoch = datetime.fromtimestamp((jd - 2440587.5) * 86400, tz=timezone.utc)
+
+            records.append(TLERecord(
+                norad_cat_id=sat.satnum,
+                object_name=name.strip(),
+                object_id="",
+                epoch=epoch,
+                mean_motion=sat.no_kozai * (1440 / (2 * math.pi)),  # rad/min → rev/day
+                eccentricity=sat.ecco,
+                inclination_deg=math.degrees(sat.inclo),
+                raan_deg=math.degrees(sat.nodeo),
+                arg_of_perigee_deg=math.degrees(sat.argpo),
+                mean_anomaly_deg=math.degrees(sat.mo),
+                bstar=sat.bstar,
+                mean_motion_dot=sat.ndot,
+                mean_motion_ddot=sat.nddot,
+                element_set_no=sat.elnum,
+                rev_at_epoch=sat.revnum,
+                line1=line1,
+                line2=line2,
+            ))
+        except Exception as exc:
+            logger.debug("Failed to parse TLE for %s: %s", name, exc)
+
+    return records
 
 
 class CelesTrakAdapter(BaseAdapter[TLERecord]):
-    """Fetches TLE/GP data from CelesTrak. No authentication required."""
+    """Fetches TLE data from CelesTrak. No authentication required."""
 
     def __init__(self, settings: Settings, cache: CacheBackend, client: httpx.AsyncClient) -> None:
         super().__init__(settings, cache)
@@ -54,28 +82,22 @@ class CelesTrakAdapter(BaseAdapter[TLERecord]):
     def cache_key(self, **kwargs) -> str:
         norad_id = kwargs.get("norad_id")
         if norad_id:
-            return f"celestrak:gp:norad:{norad_id}"
-        return "celestrak:gp:group:active"
+            return f"celestrak:tle:norad:{norad_id}"
+        return "celestrak:tle:group:active"
 
     async def fetch_raw(self, **kwargs) -> Any:
         norad_id = kwargs.get("norad_id")
-        if norad_id:
-            url = f"{self.settings.celestrak_base_url}/NORAD/elements/gp.php"
-            params = {"CATNR": norad_id, "FORMAT": "JSON"}
-        else:
-            url = f"{self.settings.celestrak_base_url}/NORAD/elements/gp.php"
-            params = {"GROUP": "active", "FORMAT": "JSON"}
+        url = f"{self.settings.celestrak_base_url}/NORAD/elements/gp.php"
+        params = {"CATNR": norad_id, "FORMAT": "TLE"} if norad_id else {"GROUP": "active", "FORMAT": "TLE"}
 
         logger.debug("CelesTrak fetch: %s %s", url, params)
         resp = await self._client.get(url, params=params, timeout=30)
         resp.raise_for_status()
-        return resp.json()
+        return resp.text  # TLE format is plain text
 
     def normalize(self, raw: Any, **kwargs) -> TLERecord | list[TLERecord]:
         norad_id = kwargs.get("norad_id")
-        if not isinstance(raw, list):
-            raw = [raw]
-        records = [_parse_gp_record(r) for r in raw]
+        records = _parse_tle_text(raw)
         if norad_id:
             return records[0] if records else None
         return records
