@@ -104,7 +104,7 @@ By default the server runs on `http://localhost:8001`.
 | `GET /v1/simulation/stream` | Stream all events (negotiation, LLM, decisions) as SSE |
 | `GET /v1/simulation/stream/negotiation` | Stream only negotiation messages |
 | `GET /v1/simulation/stream/llm` | Stream only LLM structured outputs |
-| `GET /v1/simulation/stream/six_satellite` | 6 satellites in 3 pairs (A↔B, C↔D, E↔F), sequential, loops |
+| `GET /v1/simulation/stream/six_satellite` | 6 satellites in 3 pairs (A↔B, C↔D, E↔F), sequential, streams collision_alert, negotiation_log, decision |
 
 ### Query Parameters
 
@@ -118,7 +118,7 @@ By default the server runs on `http://localhost:8001`.
 # 3-satellite scenario (default)
 curl -N "http://localhost:8001/v1/simulation/stream?scenario=three_way&llm_provider=ollama"
 
-# 6-satellite scenario: 3 pairs (A↔B, C↔D, E↔F) sequential, loops
+# 6-satellite scenario: 3 pairs sequential, streams collision_alert, negotiation_log, decision
 curl -N "http://localhost:8001/v1/simulation/stream/six_satellite"
 ```
 
@@ -129,9 +129,17 @@ To verify the six_satellite endpoint is available:
 curl http://localhost:8001/v1/simulation/stream/six_satellite/status
 ```
 
-Each SSE event is JSON with `type`, `pair_label`, `timestamp`, and `data`.
+Each SSE event is JSON with `type`, `pair_label`, `timestamp`, and `data`. Six-satellite stream adds:
+- `collision_alert`: potential collision data at start of each pair
+- `negotiation_log`: full message log for the pair when it completes
 
 **If you only see `simulation_start` and then nothing:** The first LLM call can take 30–60s. The stream sends keepalive comments every 15s to prevent timeouts. If it still hangs, ensure Ollama is reachable from the server: when the API runs on a remote host (e.g. 10.1.96.155), set `OLLAMA_BASE_URL=http://<ollama-host>:11434` in `.env` so the API can reach Ollama.
+
+**Troubleshooting "endpoint not working":**
+1. Use `http://localhost:8001` or `http://127.0.0.1:8001` — not `http://0.0.0.0:8001` (0.0.0.0 is a bind address, not for connecting)
+2. Ensure the server is running: `cd sentinel_agent && python -m src.api`
+3. Test health: `curl http://localhost:8001/v1/health` (should return `{"status":"ok"}`)
+4. Run: `bash scripts/troubleshoot_api.sh`
 
 ## Project Structure
 

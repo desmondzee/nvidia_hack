@@ -93,7 +93,7 @@ async def stream_simulation(
     event_types: str | None = Query(
         default=None,
         description="Comma-separated event types to include. Omit for all. "
-        "Options: negotiation_message, llm_output, decision, simulation_start, simulation_end",
+        "Options: negotiation_message, llm_output, decision, simulation_start, simulation_end, collision_alert, negotiation_log",
     ),
 ):
     """Stream negotiation data and LLM outputs as Server-Sent Events (SSE).
@@ -129,7 +129,7 @@ async def stream_negotiation(
         _event_generator(
             scenario,
             llm_provider,
-            event_types={"negotiation_message", "decision", "simulation_start", "simulation_end"},
+            event_types={"negotiation_message", "decision", "simulation_start", "simulation_end", "collision_alert", "negotiation_log"},
         ),
         media_type="text/event-stream",
         headers={
@@ -222,10 +222,10 @@ async def stream_six_satellite(
         description="Comma-separated event types. Omit for all.",
     ),
 ):
-    """Stream 6-satellite negotiation: 3 pairs (A↔B, C↔D, E↔F) one after another, loops.
+    """Stream 6-satellite negotiation: 3 pairs (A↔B, C↔D, E↔F) sequentially, loops.
 
-    Same event format as three-satellite stream. Each pair runs until negotiation
-    finishes, then the next pair starts. Loops continuously.
+    Streams: collision_alert, simulation_start, negotiation_message, llm_output,
+    negotiation_log, decision, simulation_end. Loops continuously.
     """
     types_set: set[str] | None = None
     if event_types:

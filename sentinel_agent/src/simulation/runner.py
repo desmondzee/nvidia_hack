@@ -1,7 +1,8 @@
 """End-to-end simulation: satellite collision avoidance negotiation.
 
-Supports 2-satellite (head_on, debris, low_probability) and 3-satellite
-(three_way) scenarios. Displays all negotiation communications between agents.
+Supports 2-satellite (head_on, debris, low_probability), 3-satellite (three_way),
+and 6-satellite (six_satellite) scenarios. Uses a2a protocol: initiator + responder
+per pair, channels for proposals/responses, StreamableChannel for SSE.
 """
 
 from __future__ import annotations
@@ -325,7 +326,7 @@ async def _run_three_satellite_simulation(
     return decisions, results[0]
 
 
-# Six-satellite pairs: A↔B, C↔D, E↔F — each runs for pair_duration_seconds
+# Six-satellite: 3 pairs (A↔B, C↔D, E↔F), sequential, full logs streamed
 SIX_SAT_PAIRS = [
     ("A↔B", "ab"),
     ("C↔D", "cd"),
@@ -340,14 +341,19 @@ async def _run_six_satellite_pair(
     message_logs: dict[str, list[MessageLog]],
     stream_queue: asyncio.Queue[dict] | None,
 ) -> tuple[ManeuverDecision | None, dict]:
-    """Run a single 2-satellite pair from the six-satellite scenario until negotiation finishes."""
+    """Run one 2-satellite pair sequentially. Streams collision_alert, negotiation logs, result."""
+    alert_a = get_six_satellite_alert(pair_key)
+    alert_b = _mirror_alert(alert_a)
+
+    # Stream collision alert at start of pair
+    _emit_stream_event(
+        stream_queue, "collision_alert", pair_label,
+        {"alert": alert_a.model_dump(mode="json")},
+    )
     _emit_stream_event(
         stream_queue, "simulation_start", pair_label,
         {"scenario": "six_satellite", "pair": pair_label},
     )
-
-    alert_a = get_six_satellite_alert(pair_key)
-    alert_b = _mirror_alert(alert_a)
 
     sat_a_id = alert_a.our_object.object_id
     sat_b_id = alert_a.threat_object.object_id
@@ -409,6 +415,16 @@ async def _run_six_satellite_pair(
     if isinstance(decision, dict):
         decision = ManeuverDecision.model_validate(decision)
 
+    # Stream full negotiation log for this pair
+    negotiation_log = []
+    for m in log_ab.messages:
+        msg = NegotiationMessage.model_validate(m) if isinstance(m, dict) else m
+        negotiation_log.append(msg.model_dump(mode="json"))
+    _emit_stream_event(
+        stream_queue, "negotiation_log", pair_label,
+        {"messages": negotiation_log},
+    )
+
     if decision:
         _emit_stream_event(
             stream_queue, "decision", pair_label, decision.model_dump(mode="json")
@@ -423,9 +439,9 @@ async def run_six_satellite_stream(
     stream_queue: asyncio.Queue[dict] | None = None,
     loop: bool = True,
 ) -> None:
-    """Run 6-satellite scenario: 3 pairs (A↔B, C↔D, E↔F) one after another until each finishes.
+    """Run 6-satellite scenario: 3 pairs (A↔B, C↔D, E↔F) sequentially, loops.
 
-    Same event format as three-satellite stream. Loops forever if loop=True.
+    Streams: collision_alert, negotiation_message, llm_output, negotiation_log, decision.
     """
     llm = get_llm(llm_provider)
     message_logs: dict[str, list[MessageLog]] = {}
