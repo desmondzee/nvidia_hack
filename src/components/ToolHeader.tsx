@@ -3,24 +3,14 @@
 import { useState, useEffect } from "react";
 import { useSatelliteStore } from "@/stores/satelliteStore";
 
-const SPEED_OPTIONS = [
-  { label: "1×", value: 1 },
-  { label: "10×", value: 10 },
-  { label: "60×", value: 60 },
-  { label: "300×", value: 300 },
-  { label: "1000×", value: 1000 },
-];
 
 export default function ToolHeader() {
   const {
-    isPlaying,
-    playbackSpeed,
     currentTime,
     satellites,
     isLoading,
-    togglePlay,
-    setPlaybackSpeed,
-    setCurrentTime,
+    viewMode,
+    setViewMode,
   } = useSatelliteStore();
 
   // Avoid hydration mismatch — only render time after client mount
@@ -29,10 +19,6 @@ export default function ToolHeader() {
 
   const formatTime = (d: Date) => {
     return d.toISOString().replace("T", " ").substring(0, 19) + " UTC";
-  };
-
-  const handleReset = () => {
-    setCurrentTime(new Date());
   };
 
   return (
@@ -44,7 +30,7 @@ export default function ToolHeader() {
         borderBottom: "1px solid var(--border-default)",
       }}
     >
-      {/* Left: Identity */}
+      {/* Left: Identity + View Tabs */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -90,6 +76,50 @@ export default function ToolHeader() {
             {isLoading ? "LOADING TLE DATA..." : `${satellites.length} OBJECTS TRACKED`}
           </span>
         </div>
+
+        <div className="h-4 w-px" style={{ background: "var(--border-default)" }} />
+
+        {/* View mode tabs */}
+        <div className="flex items-center gap-1">
+          {(["global", "collision"] as const).map((mode) => {
+            const isActive = viewMode === mode;
+            const isCollision = mode === "collision";
+            return (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className="flex items-center gap-1.5 px-3 py-1 transition-all"
+                style={{
+                  fontSize: "9px",
+                  letterSpacing: "0.12em",
+                  background: isActive
+                    ? isCollision ? "rgba(239,68,68,0.15)" : "rgba(6,182,212,0.12)"
+                    : "transparent",
+                  color: isActive
+                    ? isCollision ? "var(--accent-red)" : "var(--accent-cyan)"
+                    : "var(--text-muted)",
+                  border: "1px solid",
+                  borderColor: isActive
+                    ? isCollision ? "rgba(239,68,68,0.6)" : "rgba(6,182,212,0.5)"
+                    : "var(--border-subtle)",
+                  borderRadius: "2px",
+                  cursor: "pointer",
+                }}
+              >
+                {isCollision && (
+                  <div
+                    className="w-1 h-1 rounded-full"
+                    style={{
+                      background: isActive ? "var(--accent-red)" : "var(--text-muted)",
+                      boxShadow: isActive ? "0 0 4px var(--accent-red)" : "none",
+                    }}
+                  />
+                )}
+                {mode === "global" ? "GLOBAL VIEW" : "COLLISION"}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Center: Time display */}
@@ -118,108 +148,28 @@ export default function ToolHeader() {
         </div>
       </div>
 
-      {/* Right: Playback controls */}
+      {/* Right: LIVE indicator */}
       <div className="flex items-center gap-3">
-        {/* Speed selector */}
-        <div className="flex items-center gap-1">
-          {SPEED_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setPlaybackSpeed(opt.value)}
-              className="px-2 py-1 transition-colors"
-              style={{
-                fontSize: "10px",
-                letterSpacing: "0.05em",
-                background:
-                  playbackSpeed === opt.value
-                    ? "rgba(6, 182, 212, 0.15)"
-                    : "transparent",
-                color:
-                  playbackSpeed === opt.value
-                    ? "var(--accent-cyan)"
-                    : "var(--text-tertiary)",
-                border: "1px solid",
-                borderColor:
-                  playbackSpeed === opt.value
-                    ? "var(--accent-cyan)"
-                    : "var(--border-subtle)",
-                borderRadius: "2px",
-                cursor: "pointer",
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
         <div
-          className="h-4 w-px"
-          style={{ background: "var(--border-default)" }}
-        />
-
-        {/* Reset button */}
-        <button
-          onClick={handleReset}
-          className="flex items-center gap-1.5 px-3 py-1.5 transition-colors"
-          style={{
-            fontSize: "10px",
-            letterSpacing: "0.08em",
-            background: "transparent",
-            color: "var(--text-tertiary)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: "2px",
-            cursor: "pointer",
-          }}
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path
-              d="M5 1.5A3.5 3.5 0 1 0 8.5 5"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-            />
-            <path d="M8.5 1.5v3H5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          NOW
-        </button>
-
-        {/* Play/Pause */}
-        <button
-          onClick={togglePlay}
-          className="flex items-center gap-2 px-4 py-1.5 transition-all"
+          className="flex items-center gap-2 px-3 py-1.5"
           style={{
             fontSize: "10px",
             letterSpacing: "0.1em",
-            background: isPlaying
-              ? "rgba(6, 182, 212, 0.2)"
-              : "rgba(6, 182, 212, 0.1)",
-            color: "var(--accent-cyan)",
-            border: "1px solid",
-            borderColor: isPlaying
-              ? "rgba(6, 182, 212, 0.8)"
-              : "rgba(6, 182, 212, 0.4)",
+            color: "var(--accent-green)",
+            border: "1px solid rgba(34, 197, 94, 0.4)",
             borderRadius: "2px",
-            cursor: "pointer",
-            boxShadow: isPlaying ? "0 0 12px rgba(6, 182, 212, 0.3)" : "none",
+            background: "rgba(34, 197, 94, 0.1)",
           }}
         >
-          {isPlaying ? (
-            <>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                <rect x="1.5" y="1.5" width="2.5" height="7" />
-                <rect x="6" y="1.5" width="2.5" height="7" />
-              </svg>
-              PAUSE
-            </>
-          ) : (
-            <>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                <polygon points="1.5,1 9,5 1.5,9" />
-              </svg>
-              PLAY
-            </>
-          )}
-        </button>
+          <span
+            className="w-1.5 h-1.5 rounded-full animate-pulse"
+            style={{
+              background: "var(--accent-green)",
+              boxShadow: "0 0 6px var(--accent-green)",
+            }}
+          />
+          LIVE
+        </div>
       </div>
     </header>
   );

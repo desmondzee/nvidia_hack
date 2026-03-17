@@ -11,6 +11,8 @@ export interface SatelliteData {
   alt?: number;
 }
 
+export type ViewMode = "global" | "collision";
+
 interface SatelliteState {
   satellites: SatelliteData[];
   selectedSatellite: SatelliteData | null;
@@ -19,6 +21,9 @@ interface SatelliteState {
   currentTime: Date;
   isLoading: boolean;
   error: string | null;
+  viewMode: ViewMode;
+  highlightedSatellites: Record<string, string>; // satId → hex color
+  activeCollisionPair: [string, string] | null; // [SAT-A-001, SAT-B-001] etc
 
   setSatellites: (sats: SatelliteData[]) => void;
   setSelectedSatellite: (sat: SatelliteData | null) => void;
@@ -28,16 +33,28 @@ interface SatelliteState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   togglePlay: () => void;
+  setViewMode: (mode: ViewMode) => void;
+  setHighlightedSatellites: (highlights: Record<string, string>) => void;
+  setActiveCollisionPair: (pair: [string, string] | null) => void;
 }
+
+const getTodayMidnight = () => {
+  const now = new Date();
+  now.setUTCHours(0, 0, 0, 0);
+  return now;
+};
 
 export const useSatelliteStore = create<SatelliteState>((set) => ({
   satellites: [],
   selectedSatellite: null,
-  isPlaying: false,
-  playbackSpeed: 60,
-  currentTime: new Date(),
+  isPlaying: true,
+  playbackSpeed: 5,
+  currentTime: getTodayMidnight(),
   isLoading: true,
   error: null,
+  viewMode: "global",
+  highlightedSatellites: {},
+  activeCollisionPair: null,
 
   setSatellites: (sats) => set({ satellites: sats }),
   setSelectedSatellite: (sat) => set({ selectedSatellite: sat }),
@@ -47,4 +64,7 @@ export const useSatelliteStore = create<SatelliteState>((set) => ({
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
+  setViewMode: (mode) => set({ viewMode: mode }),
+  setHighlightedSatellites: (highlights) => set({ highlightedSatellites: highlights }),
+  setActiveCollisionPair: (pair) => set({ activeCollisionPair: pair }),
 }));

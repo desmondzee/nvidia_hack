@@ -3,7 +3,7 @@
 import { useSatelliteStore } from "@/stores/satelliteStore";
 
 export default function StatusBar() {
-  const { satellites, selectedSatellite, isPlaying, playbackSpeed, error } =
+  const { satellites, selectedSatellite, isPlaying, playbackSpeed, error, viewMode } =
     useSatelliteStore();
 
   return (
@@ -38,15 +38,17 @@ export default function StatusBar() {
           {satellites.length} OBJECTS
         </span>
 
-        <span
-          style={{
-            color: isPlaying ? "var(--accent-green)" : "var(--text-muted)",
-            fontSize: "9px",
-            letterSpacing: "0.1em",
-          }}
-        >
-          {isPlaying ? `▶ ${playbackSpeed}×` : "⏸ PAUSED"}
-        </span>
+        {viewMode === "global" && (
+          <span
+            style={{
+              color: isPlaying ? "var(--accent-green)" : "var(--text-muted)",
+              fontSize: "9px",
+              letterSpacing: "0.1em",
+            }}
+          >
+            {isPlaying ? `▶ ${playbackSpeed}×` : "⏸ PAUSED"}
+          </span>
+        )}
 
         <span style={{ color: "var(--text-muted)", fontSize: "9px" }}>
           TLE/SGP4
