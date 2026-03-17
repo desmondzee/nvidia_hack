@@ -1,3 +1,61 @@
+# Sentinel — Decentralized Agentic Space Traffic Negotiation
+
+## The Crisis: Orbital Congestion is a Climate Emergency
+
+With over 14,000 active satellites and 40,000+ tracked pieces of debris in Low Earth Orbit (LEO), we are accelerating toward **Kessler Syndrome**—a runaway chain reaction of collisions. But this isn't just an operational hazard; it is an active, escalating environmental crisis.
+
+- **Stratospheric Metal Pollution:** When satellites and debris burn up upon reentry, they deposit aluminum oxide and spacecraft alloys directly into the stratosphere. These metallic aerosols are already altering polar vortex dynamics, warming the mesosphere, and catalyzing ozone depletion.
+- **The Carbon Multiplier of Collisions:** A single rocket launch produces upwards of 425 metric tonnes of CO₂-equivalent. A debris cascade that destroys hundreds of satellites would mandate hundreds of replacement launches, generating hundreds of thousands of tonnes of avoidable emissions.
+- **Propellant Waste:** Current human-in-the-loop avoidance maneuvers are uncoordinated, causing operators to burn finite propellant unnecessarily on false alarms. This shortens satellite lifespans and forces premature replacement launches.
+
+The current Space Traffic Management system—which relies on centralized ground control and takes hours to days to negotiate a single maneuver—**cannot scale** to prevent this ecological disaster.
+
+---
+
+## The Solution: Decentralized Agentic Negotiation
+
+We propose a paradigm shift: each satellite is represented by an **autonomous AI agent** that continuously monitors risk and negotiates avoidance maneuvers directly with peer satellites in **seconds**.
+
+Our system operates across three autonomous layers:
+
+1. **Unified Data Layer:** Aggregates real-time TLEs, Conjunction Data Messages (CDMs), and NOAA space weather into a single, actionable context payload.
+2. **Agentic Negotiation (LangGraph):** When collision risk is critical, the agent initiates a bilateral negotiation protocol. It proposes a concrete, fuel-efficient maneuver, evaluates counter-proposals, and commits to a mathematically sound delta-V burn in seconds.
+3. **Memory & Learning (RAG):** Using NVIDIA NIM embeddings and a Milvus vector database, agents recall past negotiations across the fleet to continuously optimize fuel efficiency and maneuver success rates.
+
+---
+
+## Powered Locally by NVIDIA
+
+To execute life-or-death maneuvers, we must sever our reliance on high-latency cloud servers.
+
+- **Edge Sovereignty via DGX Spark:** The entire system runs locally on the NVIDIA DGX Spark. Its 128GB of unified memory allows us to run complex, multi-agent reasoning at the edge with zero network latency.
+- **Auditable Reasoning with Nemotron-Nano-30B:** The LLM does not just output text; it produces typed Pydantic objects. The model generates an explicit `reasoning_content` chain-of-thought, providing operators and regulators with a transparent, inspectable audit trail for every thruster burn.
+
+---
+
+## Open Source by Necessity
+
+Space safety is a global commons problem. Satellite traffic negotiation requires bilateral agreement between competing operators. By open-sourcing the agent-to-agent protocol and the inference stack, we provide an auditable, transparent safety layer that prevents vendor lock-in, ensures regulatory compliance, and democratizes orbital safety.
+
+**The cost of inaction is an orbital debris cascade that poisons our stratosphere and shuts down the space economy. The solution is running locally on a DGX Spark today.**
+
+---
+
+## Data & Library Dependencies
+
+| Category | Provider / Library | Notes |
+|----------|--------------------|-------|
+| **Open Source Data (free, no auth)** | CelesTrak | Live TLE orbital elements for all tracked objects |
+| | NOAA SWPC | Real-time space weather (Kp index, F10.7 solar flux, Ap geomagnetic index) |
+| **Open Source Libraries (local)** | SGP4 (`sgp4`) | Standard orbital propagation algorithm |
+| | NRLMSISE-00 (`nrlmsise00`) | Atmospheric density model from the Naval Research Laboratory |
+| | Skyfield | Ground station visibility pass computation |
+| | NumPy / SciPy | Vector math and orbital geometry |
+| | XGBoost | Collision risk classification |
+| **Proprietary / Credentialed (optional)** | Space-Track.org | Conjunction data messages; requires free account registration with the U.S. Space Force |
+
+---
+
 # System Workflow — Satellite Collision Avoidance Pipeline
 
 End-to-end walkthrough of every step, from raw orbital data through LLM-driven negotiation to a maneuver decision.
