@@ -112,6 +112,7 @@ async def _run_responder_loop(
     receive_channel: InMemoryChannel,
     send_channel: InMemoryChannel,
     max_rounds: int = 3,
+    historical_context: str = "",
 ) -> None:
     """Responder loop: listen for proposals and respond, one round at a time."""
     for _ in range(1, max_rounds + 1):
@@ -132,6 +133,7 @@ async def _run_responder_loop(
             our_id=our_id,
             peer_id=peer_id,
             inbound_proposal=proposal,
+            historical_context=historical_context,
         )
 
         result = await responder_graph.ainvoke(state)
@@ -554,11 +556,13 @@ async def run_simulation(
 async def run_simulation_from_alert(
     alert: CollisionAlert,
     llm_provider: str = "nvidia",
+    historical_context: str = "",
 ) -> tuple[ManeuverDecision | None, dict]:
     """Run 2-satellite negotiation from a real CollisionAlert (not a mock scenario).
 
     The alert represents the initiating satellite's perspective. A mirrored
     alert is generated for the peer (threat object acts as 'our' satellite).
+    historical_context is injected into both agent prompts from the RAG memory service.
     """
     message_logs: dict[str, list[MessageLog]] = {}
     llm = get_llm(llm_provider)
@@ -576,7 +580,10 @@ async def run_simulation_from_alert(
     initiator_graph = build_initiator_graph(llm=llm, send_channel=a_to_b, receive_channel=b_to_a)
     responder_graph = build_responder_graph(llm=llm, send_channel=b_to_a)
 
-    initiator_state = make_initiator_state(alert=alert, our_id=sat_a_id, peer_id=sat_b_id)
+    initiator_state = make_initiator_state(
+        alert=alert, our_id=sat_a_id, peer_id=sat_b_id,
+        historical_context=historical_context,
+    )
     alert_b = _mirror_alert(alert)
 
     initiator_task = asyncio.create_task(initiator_graph.ainvoke(initiator_state))
@@ -588,6 +595,7 @@ async def run_simulation_from_alert(
             peer_id=sat_a_id,
             receive_channel=a_to_b,
             send_channel=b_to_a,
+            historical_context=historical_context,
         )
     )
 
