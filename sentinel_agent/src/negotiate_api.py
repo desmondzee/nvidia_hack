@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
 from src.api.server import app as stream_app
+from src.memory.client import MemoryClient
 from src.models.enriched import EnrichedCollisionAlert
 from src.models.maneuver import ManeuverDecision
+from src.models.negotiation import NegotiationMessage
 from src.simulation.runner import run_simulation_from_alert
 
 logging.basicConfig(
@@ -25,6 +28,18 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+_LLM_PROVIDER = os.getenv("SENTINEL_LLM_PROVIDER", "nvidia")
+
+memory_client = MemoryClient()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await memory_client.startup()
+    yield
+    await memory_client.shutdown()
+
 
 app = FastAPI(
     title="Sentinel Agent API",
@@ -34,12 +49,11 @@ app = FastAPI(
         "Also includes streaming endpoints for simulation demos."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Include streaming endpoints (six_satellite, etc.) so both entry points work
 app.include_router(stream_app.router)
-
-_LLM_PROVIDER = os.getenv("SENTINEL_LLM_PROVIDER", "nvidia")
 
 
 @app.get("/health")
@@ -52,8 +66,11 @@ async def negotiate(payload: EnrichedCollisionAlert) -> ManeuverDecision | None:
     """
     Run collision avoidance negotiation for the given enriched alert.
 
-    Converts the EnrichedCollisionAlert to a CollisionAlert and runs the
-    existing LangGraph negotiation graph (up to 3 rounds).
+    RAG flow:
+      1. Query negotiation_memory service for similar past negotiations
+      2. Inject retrieved history into LLM prompts
+      3. Run LangGraph negotiation (up to 3 rounds)
+      4. Store the completed session back in negotiation_memory
 
     Returns a ManeuverDecision with:
       - agreed: whether both satellites reached an agreement
@@ -71,8 +88,23 @@ async def negotiate(payload: EnrichedCollisionAlert) -> ManeuverDecision | None:
 
     alert = payload.to_collision_alert()
 
+    # 1. Retrieve relevant historical context from the RAG memory service
+    historical_context = await memory_client.retrieve_context(
+        satellite_ids=[payload.our_object.object_id, payload.threat_object.object_id],
+        miss_distance_m=payload.miss_distance_m,
+        threat_level=payload.threat_level,
+        probability_of_collision=payload.probability_of_collision,
+    )
+    if historical_context:
+        logger.info("Injecting historical context (%d chars) into negotiation prompts", len(historical_context))
+
+    # 2. Run negotiation with RAG context injected into LLM prompts
     try:
-        decision, _ = await run_simulation_from_alert(alert, llm_provider=_LLM_PROVIDER)
+        decision, initiator_result = await run_simulation_from_alert(
+            alert,
+            llm_provider=_LLM_PROVIDER,
+            historical_context=historical_context,
+        )
     except Exception as exc:
         logger.exception("Negotiation simulation failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Negotiation failed: {exc}")
@@ -83,6 +115,13 @@ async def negotiate(payload: EnrichedCollisionAlert) -> ManeuverDecision | None:
             decision.agreed,
             decision.rounds_taken,
         )
+
+        # 3. Store the completed negotiation in the RAG memory service
+        messages_log: list[NegotiationMessage] = [
+            NegotiationMessage.model_validate(m) if isinstance(m, dict) else m
+            for m in initiator_result.get("messages_log", [])
+        ]
+        await memory_client.store_negotiation(alert, decision, messages_log)
     else:
         logger.warning("Negotiation produced no decision for alert %s", payload.alert_id)
 

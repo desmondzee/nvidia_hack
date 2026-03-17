@@ -118,6 +118,9 @@ class InitiatorState(TypedDict):
     analysis_notes: str
     sharing_strategy: str
 
+    # RAG: historical context from the memory service (injected before graph runs)
+    historical_context: str
+
 
 class ResponderState(TypedDict):
     """State for the responder negotiation graph."""
@@ -140,6 +143,9 @@ class ResponderState(TypedDict):
     outbound_response: NegotiationMessage | None
     messages_log: Annotated[list[NegotiationMessage], operator.add]
 
+    # RAG: historical context from the memory service
+    historical_context: str
+
 
 # ---------------------------------------------------------------------------
 # State factory helpers
@@ -151,6 +157,7 @@ def make_initiator_state(
     our_id: str,
     peer_id: str,
     session_id: str | None = None,
+    historical_context: str = "",
 ) -> dict:
     """Build initial state dict for the initiator graph."""
     return {
@@ -167,6 +174,7 @@ def make_initiator_state(
         "final_decision": None,
         "analysis_notes": "",
         "sharing_strategy": "",
+        "historical_context": historical_context,
     }
 
 
@@ -175,6 +183,7 @@ def make_responder_state(
     our_id: str,
     peer_id: str,
     inbound_proposal: NegotiationMessage,
+    historical_context: str = "",
 ) -> dict:
     """Build initial state dict for the responder graph."""
     return {
@@ -188,6 +197,7 @@ def make_responder_state(
         "evaluation_result": None,
         "outbound_response": None,
         "messages_log": [],
+        "historical_context": historical_context,
     }
 
 
@@ -278,9 +288,14 @@ def _make_analyze_node(
         alert = CollisionAlert.model_validate(state["collision_alert"])
         structured_llm = llm.with_structured_output(AnalysisOutput)
 
+        human_content = f"COLLISION ALERT:\n{alert.model_dump_json(indent=2)}"
+        historical_context = state.get("historical_context", "")
+        if historical_context:
+            human_content = f"{historical_context}\n\n{human_content}"
+
         result: AnalysisOutput | None = await structured_llm.ainvoke([
             SystemMessage(content=ANALYZE_SYSTEM_PROMPT),
-            HumanMessage(content=f"COLLISION ALERT:\n{alert.model_dump_json(indent=2)}"),
+            HumanMessage(content=human_content),
         ])
 
         if result is None:
@@ -616,15 +631,18 @@ def _make_evaluate_proposal_node(
 
         structured_llm = llm.with_structured_output(EvaluationOutput)
 
+        human_parts = [
+            f"OUR COLLISION DATA:\n{alert.model_dump_json(indent=2)}",
+            f"PEER PROPOSAL:\n{proposal.model_dump_json(indent=2)}",
+            f"ROUND: {state['current_round']} of {state['max_rounds']}",
+        ]
+        historical_context = state.get("historical_context", "")
+        if historical_context:
+            human_parts.insert(0, historical_context)
+
         result: EvaluationOutput | None = await structured_llm.ainvoke([
             SystemMessage(content=EVALUATE_PROPOSAL_SYSTEM_PROMPT),
-            HumanMessage(
-                content=(
-                    f"OUR COLLISION DATA:\n{alert.model_dump_json(indent=2)}\n\n"
-                    f"PEER PROPOSAL:\n{proposal.model_dump_json(indent=2)}\n\n"
-                    f"ROUND: {state['current_round']} of {state['max_rounds']}"
-                )
-            ),
+            HumanMessage(content="\n\n".join(human_parts)),
         ])
 
         if result is None:
