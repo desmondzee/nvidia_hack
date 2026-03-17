@@ -104,7 +104,7 @@ By default the server runs on `http://localhost:8001`.
 | `GET /v1/simulation/stream` | Stream all events (negotiation, LLM, decisions) as SSE |
 | `GET /v1/simulation/stream/negotiation` | Stream only negotiation messages |
 | `GET /v1/simulation/stream/llm` | Stream only LLM structured outputs |
-| `GET /v1/simulation/stream/six_satellite` | 6 satellites in 3 pairs (A↔B, C↔D, E↔F), 20s per pair, loops |
+| `GET /v1/simulation/stream/six_satellite` | 6 satellites in 3 pairs (A↔B, C↔D, E↔F), sequential, loops |
 
 ### Query Parameters
 
@@ -118,8 +118,8 @@ By default the server runs on `http://localhost:8001`.
 # 3-satellite scenario (default)
 curl -N "http://localhost:8001/v1/simulation/stream?scenario=three_way&llm_provider=ollama"
 
-# 6-satellite scenario: 3 pairs (A↔B, C↔D, E↔F), 20s per pair, loops
-curl -N "http://localhost:8001/v1/simulation/stream/six_satellite?pair_duration_seconds=20"
+# 6-satellite scenario: 3 pairs (A↔B, C↔D, E↔F) sequential, loops
+curl -N "http://localhost:8001/v1/simulation/stream/six_satellite"
 ```
 
 **Note:** Both `python -m src.api` and `uvicorn src.negotiate_api:app` include the streaming endpoints.

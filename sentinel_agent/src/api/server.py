@@ -163,10 +163,9 @@ async def stream_llm_outputs(
 
 async def _six_satellite_event_generator(
     llm_provider: str,
-    pair_duration_seconds: float,
     event_types: set[str] | None,
 ):
-    """Async generator for 6-satellite stream: 3 pairs (A↔B, C↔D, E↔F), 20s each, loops."""
+    """Async generator for 6-satellite stream: 3 pairs one after another until each finishes, loops."""
     queue: asyncio.Queue[dict] = asyncio.Queue()
     sim_task: asyncio.Task | None = None
 
@@ -175,7 +174,6 @@ async def _six_satellite_event_generator(
             await run_six_satellite_stream(
                 llm_provider=llm_provider,
                 stream_queue=queue,
-                pair_duration_seconds=pair_duration_seconds,
                 loop=True,
             )
         except asyncio.CancelledError:
@@ -218,19 +216,15 @@ async def stream_six_satellite(
         default="ollama",
         description="LLM provider: nvidia, google, or ollama",
     ),
-    pair_duration_seconds: float = Query(
-        default=20.0,
-        description="Seconds to run each pair (A↔B, C↔D, E↔F) before switching",
-    ),
     event_types: str | None = Query(
         default=None,
         description="Comma-separated event types. Omit for all.",
     ),
 ):
-    """Stream 6-satellite negotiation: toggle between 3 pairs for 20s each, then loop.
+    """Stream 6-satellite negotiation: 3 pairs (A↔B, C↔D, E↔F) one after another, loops.
 
-    6 satellites in 3 pairs: A↔B, C↔D, E↔F. Each pair runs for pair_duration_seconds
-    (default 20s) before switching to the next. Loops continuously.
+    Same event format as three-satellite stream. Each pair runs until negotiation
+    finishes, then the next pair starts. Loops continuously.
     """
     types_set: set[str] | None = None
     if event_types:
@@ -239,7 +233,6 @@ async def stream_six_satellite(
     return StreamingResponse(
         _six_satellite_event_generator(
             llm_provider,
-            pair_duration_seconds,
             types_set,
         ),
         media_type="text/event-stream",

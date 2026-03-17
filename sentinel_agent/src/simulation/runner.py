@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from datetime import datetime, timezone
 
 from src.agents.llm import get_llm
@@ -340,11 +339,8 @@ async def _run_six_satellite_pair(
     llm,
     message_logs: dict[str, list[MessageLog]],
     stream_queue: asyncio.Queue[dict] | None,
-    pair_duration_seconds: float = 20.0,
 ) -> tuple[ManeuverDecision | None, dict]:
-    """Run a single 2-satellite pair from the six-satellite scenario."""
-    start = time.monotonic()
-
+    """Run a single 2-satellite pair from the six-satellite scenario until negotiation finishes."""
     _emit_stream_event(
         stream_queue, "simulation_start", pair_label,
         {"scenario": "six_satellite", "pair": pair_label},
@@ -419,23 +415,17 @@ async def _run_six_satellite_pair(
         )
     _emit_stream_event(stream_queue, "simulation_end", pair_label)
 
-    # Pad to pair_duration_seconds so each pair gets 20s before switching
-    elapsed = time.monotonic() - start
-    if elapsed < pair_duration_seconds:
-        await asyncio.sleep(pair_duration_seconds - elapsed)
-
     return decision, initiator_result
 
 
 async def run_six_satellite_stream(
     llm_provider: str = "ollama",
     stream_queue: asyncio.Queue[dict] | None = None,
-    pair_duration_seconds: float = 20.0,
     loop: bool = True,
 ) -> None:
-    """Run 6-satellite scenario: toggle between 3 pairs (A↔B, C↔D, E↔F), 20s each.
+    """Run 6-satellite scenario: 3 pairs (A↔B, C↔D, E↔F) one after another until each finishes.
 
-    Streams events to stream_queue. Loops forever if loop=True (until client disconnects).
+    Same event format as three-satellite stream. Loops forever if loop=True.
     """
     llm = get_llm(llm_provider)
     message_logs: dict[str, list[MessageLog]] = {}
@@ -448,7 +438,6 @@ async def run_six_satellite_stream(
                 llm=llm,
                 message_logs=message_logs,
                 stream_queue=stream_queue,
-                pair_duration_seconds=pair_duration_seconds,
             )
         if not loop:
             break
