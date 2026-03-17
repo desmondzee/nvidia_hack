@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "Multi-agent satellite collision avoidance system with negotiation protocol"
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
     "langchain-nvidia-ai-endpoints>=0.3.0",

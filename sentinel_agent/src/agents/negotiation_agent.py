@@ -10,6 +10,7 @@ invoked once per round by the simulation runner.
 
 from __future__ import annotations
 
+import asyncio
 import operator
 import uuid
 from datetime import datetime, timezone
@@ -248,7 +249,29 @@ you MUST provide a counter_maneuver with realistic values.\
 """
 
 
-def _make_analyze_node(llm: BaseChatModel):
+def _emit_llm_output(
+    queue: asyncio.Queue[dict[str, Any]] | None,
+    pair_label: str | None,
+    stage: str,
+    output: dict[str, Any],
+) -> None:
+    """Emit LLM output to stream queue if configured."""
+    if queue is None:
+        return
+    event = {
+        "type": "llm_output",
+        "pair_label": pair_label,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": {"stage": stage, "output": output},
+    }
+    queue.put_nowait(event)
+
+
+def _make_analyze_node(
+    llm: BaseChatModel,
+    stream_queue: asyncio.Queue[dict[str, Any]] | None = None,
+    pair_label: str | None = None,
+):
     """Node: analyze collision alert, decide sharing strategy."""
 
     async def analyze_collision(state: dict) -> dict:
@@ -266,6 +289,9 @@ def _make_analyze_node(llm: BaseChatModel):
                 "sharing_strategy": "Share basic miss distance and Pc; withhold covariance and fuel data",
             }
 
+        _emit_llm_output(
+            stream_queue, pair_label, "analyze", result.model_dump(mode="json")
+        )
         return {
             "analysis_notes": result.severity_assessment,
             "sharing_strategy": result.sharing_strategy,
@@ -274,7 +300,12 @@ def _make_analyze_node(llm: BaseChatModel):
     return analyze_collision
 
 
-def _make_generate_proposal_node(llm: BaseChatModel, send_channel: NegotiationChannel):
+def _make_generate_proposal_node(
+    llm: BaseChatModel,
+    send_channel: NegotiationChannel,
+    stream_queue: asyncio.Queue[dict[str, Any]] | None = None,
+    pair_label: str | None = None,
+):
     """Node: generate and send a negotiation proposal."""
 
     async def generate_proposal(state: dict) -> dict:
@@ -325,6 +356,9 @@ def _make_generate_proposal_node(llm: BaseChatModel, send_channel: NegotiationCh
                 reasoning="Fallback: LLM structured output unavailable; proposing minimal maneuver.",
             )
 
+        _emit_llm_output(
+            stream_queue, pair_label, "proposal", result.model_dump(mode="json")
+        )
         msg = NegotiationMessage(
             message_id=str(uuid.uuid4()),
             session_id=state["session_id"],
@@ -363,7 +397,11 @@ def _make_await_response_node(receive_channel: NegotiationChannel):
     return await_response
 
 
-def _make_evaluate_response_node(llm: BaseChatModel):
+def _make_evaluate_response_node(
+    llm: BaseChatModel,
+    stream_queue: asyncio.Queue[dict[str, Any]] | None = None,
+    pair_label: str | None = None,
+):
     """Node: evaluate the peer's response (only called when peer rejected)."""
 
     async def evaluate_response(state: dict) -> dict:
@@ -392,6 +430,10 @@ def _make_evaluate_response_node(llm: BaseChatModel):
             ),
         ])
 
+        if result:
+            _emit_llm_output(
+                stream_queue, pair_label, "evaluate_response", result.model_dump(mode="json")
+            )
         return {"peer_accepted": result.accept if result else True}
 
     return evaluate_response
@@ -406,7 +448,11 @@ def _make_increment_round_node():
     return increment_round
 
 
-def _make_decision_node(llm: BaseChatModel):
+def _make_decision_node(
+    llm: BaseChatModel,
+    stream_queue: asyncio.Queue[dict[str, Any]] | None = None,
+    pair_label: str | None = None,
+):
     """Node: produce the final ManeuverDecision."""
 
     async def make_decision(state: dict) -> dict:
@@ -442,6 +488,9 @@ def _make_decision_node(llm: BaseChatModel):
                 summary="Fallback: LLM structured output unavailable.",
             )
 
+        _emit_llm_output(
+            stream_queue, pair_label, "decision", result.model_dump(mode="json")
+        )
         decision = ManeuverDecision(
             session_id=state["session_id"],
             alert_id=alert.alert_id,
@@ -483,6 +532,8 @@ def build_initiator_graph(
     llm: BaseChatModel,
     send_channel: NegotiationChannel,
     receive_channel: NegotiationChannel,
+    stream_queue: asyncio.Queue[dict[str, Any]] | None = None,
+    pair_label: str | None = None,
 ) -> Any:
     """Build the LangGraph for the initiator role.
 
@@ -497,12 +548,27 @@ def build_initiator_graph(
     """
     graph = StateGraph(InitiatorState)
 
-    graph.add_node("analyze_collision", _make_analyze_node(llm))
-    graph.add_node("generate_proposal", _make_generate_proposal_node(llm, send_channel))
+    graph.add_node(
+        "analyze_collision",
+        _make_analyze_node(llm, stream_queue=stream_queue, pair_label=pair_label),
+    )
+    graph.add_node(
+        "generate_proposal",
+        _make_generate_proposal_node(
+            llm, send_channel,
+            stream_queue=stream_queue, pair_label=pair_label,
+        ),
+    )
     graph.add_node("await_response", _make_await_response_node(receive_channel))
-    graph.add_node("evaluate_response", _make_evaluate_response_node(llm))
+    graph.add_node(
+        "evaluate_response",
+        _make_evaluate_response_node(llm, stream_queue=stream_queue, pair_label=pair_label),
+    )
     graph.add_node("increment_round", _make_increment_round_node())
-    graph.add_node("make_decision", _make_decision_node(llm))
+    graph.add_node(
+        "make_decision",
+        _make_decision_node(llm, stream_queue=stream_queue, pair_label=pair_label),
+    )
 
     graph.add_edge(START, "analyze_collision")
     graph.add_edge("analyze_collision", "generate_proposal")
@@ -536,7 +602,11 @@ def _make_receive_proposal_node():
     return receive_proposal
 
 
-def _make_evaluate_proposal_node(llm: BaseChatModel):
+def _make_evaluate_proposal_node(
+    llm: BaseChatModel,
+    stream_queue: asyncio.Queue[dict[str, Any]] | None = None,
+    pair_label: str | None = None,
+):
     """Node: evaluate the peer's proposal against our collision data."""
 
     async def evaluate_proposal(state: dict) -> dict:
@@ -564,6 +634,9 @@ def _make_evaluate_proposal_node(llm: BaseChatModel):
                 counter_maneuver=None,
             )
 
+        _emit_llm_output(
+            stream_queue, pair_label, "evaluate_proposal", result.model_dump(mode="json")
+        )
         return {"evaluation_result": result}
 
     return evaluate_proposal
@@ -612,6 +685,8 @@ def _make_generate_response_node(llm: BaseChatModel, send_channel: NegotiationCh
 def build_responder_graph(
     llm: BaseChatModel,
     send_channel: NegotiationChannel,
+    stream_queue: asyncio.Queue[dict[str, Any]] | None = None,
+    pair_label: str | None = None,
 ) -> Any:
     """Build the LangGraph for the responder role.
 
@@ -623,7 +698,10 @@ def build_responder_graph(
     graph = StateGraph(ResponderState)
 
     graph.add_node("receive_proposal", _make_receive_proposal_node())
-    graph.add_node("evaluate_proposal", _make_evaluate_proposal_node(llm))
+    graph.add_node(
+        "evaluate_proposal",
+        _make_evaluate_proposal_node(llm, stream_queue=stream_queue, pair_label=pair_label),
+    )
     graph.add_node("generate_response", _make_generate_response_node(llm, send_channel))
 
     graph.add_edge(START, "receive_proposal")

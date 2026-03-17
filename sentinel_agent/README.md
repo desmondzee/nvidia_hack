@@ -8,6 +8,7 @@ Multi-agent satellite collision avoidance system with an LLM-driven negotiation 
 - **Responder**: Receives proposals, evaluates them, and accepts or counters with alternatives.
 - **Communication display**: All negotiation messages between agents are shown (proposals, responses, reasoning).
 - **LLM providers**: NVIDIA NIM (cloud), Google Gemini (cloud), or **Ollama** (local, falls back to Google if Ollama fails).
+- **Streaming API**: FastAPI endpoints to stream negotiation data and LLM outputs in real time.
 
 ## Requirements
 
@@ -18,6 +19,8 @@ Multi-agent satellite collision avoidance system with an LLM-driven negotiation 
 
 ```bash
 cd sentinel_agent
+pip install -r requirements.txt
+# or for editable install:
 pip install -e .
 ```
 
@@ -84,21 +87,57 @@ asyncio.run(run_simulation(scenario="three_way", llm_provider="ollama"))
 
 The output shows **negotiation communications** (proposals, responses, reasoning) for each pair, followed by the final results.
 
+## Streaming API
+
+Run the FastAPI server to stream negotiation data and LLM outputs in real time:
+
+```bash
+python -m src.api
+```
+
+By default the server runs on `http://localhost:8001`.
+
+### Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/simulation/stream` | Stream all events (negotiation, LLM, decisions) as SSE |
+| `GET /v1/simulation/stream/negotiation` | Stream only negotiation messages |
+| `GET /v1/simulation/stream/llm` | Stream only LLM structured outputs |
+
+### Query Parameters
+
+- `scenario`: `head_on`, `debris`, `low_probability`, or `three_way` (default: `three_way`)
+- `llm_provider`: `nvidia`, `google`, or `ollama` (default: `ollama`)
+- `event_types`: (full stream only) Comma-separated filter, e.g. `negotiation_message,llm_output`
+
+### Example
+
+```bash
+curl -N "http://localhost:8001/v1/simulation/stream?scenario=three_way&llm_provider=ollama"
+```
+
+Each SSE event is JSON with `type`, `pair_label`, `timestamp`, and `data`.
+
 ## Project Structure
 
 ```
 sentinel_agent/
 ├── src/
 │   ├── agents/
-│   │   ├── llm.py           # LLM provider abstraction (NVIDIA, Google, Ollama)
-│   │   └── negotiation_agent.py  # LangGraph initiator/responder graphs
-│   ├── models/              # Pydantic models (physics, negotiation, maneuver)
-│   ├── physics_interface/   # Mock collision alerts
-│   ├── protocol/            # In-memory negotiation channel
+│   │   ├── llm.py              # LLM provider abstraction (NVIDIA, Google, Ollama)
+│   │   └── negotiation_agent.py # LangGraph initiator/responder graphs
+│   ├── api/
+│   │   ├── server.py            # FastAPI streaming endpoints
+│   │   └── stream_events.py     # Event models for streaming
+│   ├── models/                  # Pydantic models (physics, negotiation, maneuver)
+│   ├── physics_interface/      # Mock collision alerts
+│   ├── protocol/               # In-memory negotiation channel
 │   └── simulation/
-│       └── runner.py        # End-to-end simulation entry point
+│       └── runner.py           # End-to-end simulation entry point
 ├── tests/
 ├── pyproject.toml
+├── requirements.txt
 └── .env.example
 ```
 
