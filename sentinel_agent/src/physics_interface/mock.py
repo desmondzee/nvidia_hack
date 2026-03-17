@@ -178,6 +178,114 @@ def make_three_way_alert_bc() -> CollisionAlert:
     )
 
 
+# --- Six-satellite scenario: 3 pairs (A-B, C-D, E-F), toggle 20s per pair ---
+
+def make_six_satellite_alert_ab() -> CollisionAlert:
+    """Pair 1: A↔B for six-satellite scenario."""
+    tca = _now() + timedelta(hours=6)
+    return CollisionAlert(
+        alert_id="ALERT-006-AB",
+        time_of_closest_approach=tca,
+        our_object=SpaceObject(
+            object_id="SAT-A-001",
+            object_name="SatComm-Alpha",
+            object_type="satellite",
+            position=Vector3(x=6878.0, y=0.0, z=0.0),
+            velocity=Vector3(x=0.0, y=7.5, z=0.0),
+            covariance_diagonal=Vector3(x=0.05, y=0.05, z=0.02),
+        ),
+        threat_object=SpaceObject(
+            object_id="SAT-B-001",
+            object_name="SatComm-Beta",
+            object_type="satellite",
+            position=Vector3(x=6878.5, y=0.1, z=0.0),
+            velocity=Vector3(x=0.0, y=-7.5, z=0.0),
+            covariance_diagonal=Vector3(x=0.05, y=0.05, z=0.02),
+        ),
+        miss_distance_m=180.0,
+        probability_of_collision=0.0018,
+        threat_level=ThreatLevel.HIGH,
+        relative_velocity=Vector3(x=0.0, y=-15.0, z=0.0),
+        time_to_tca_seconds=6 * 3600,
+        weather_parameters={"solar_flux_f10_7": 150.0, "kp_index": 3},
+    )
+
+
+def make_six_satellite_alert_cd() -> CollisionAlert:
+    """Pair 2: C↔D for six-satellite scenario."""
+    tca = _now() + timedelta(hours=8)
+    return CollisionAlert(
+        alert_id="ALERT-006-CD",
+        time_of_closest_approach=tca,
+        our_object=SpaceObject(
+            object_id="SAT-C-001",
+            object_name="WeatherSat-Gamma",
+            object_type="satellite",
+            position=Vector3(x=6880.0, y=100.0, z=50.0),
+            velocity=Vector3(x=-0.5, y=7.4, z=0.3),
+            covariance_diagonal=Vector3(x=0.05, y=0.05, z=0.02),
+        ),
+        threat_object=SpaceObject(
+            object_id="SAT-D-001",
+            object_name="ImagingSat-Delta",
+            object_type="satellite",
+            position=Vector3(x=6880.2, y=100.2, z=50.1),
+            velocity=Vector3(x=-0.4, y=-7.5, z=0.2),
+            covariance_diagonal=Vector3(x=0.05, y=0.05, z=0.02),
+        ),
+        miss_distance_m=220.0,
+        probability_of_collision=0.0015,
+        threat_level=ThreatLevel.HIGH,
+        relative_velocity=Vector3(x=0.1, y=-14.9, z=-0.1),
+        time_to_tca_seconds=8 * 3600,
+        weather_parameters={"solar_flux_f10_7": 148.0, "kp_index": 2},
+    )
+
+
+def make_six_satellite_alert_ef() -> CollisionAlert:
+    """Pair 3: E↔F for six-satellite scenario."""
+    tca = _now() + timedelta(hours=10)
+    return CollisionAlert(
+        alert_id="ALERT-006-EF",
+        time_of_closest_approach=tca,
+        our_object=SpaceObject(
+            object_id="SAT-E-001",
+            object_name="NavSat-Epsilon",
+            object_type="satellite",
+            position=Vector3(x=6890.0, y=200.0, z=0.0),
+            velocity=Vector3(x=0.3, y=7.45, z=0.0),
+            covariance_diagonal=Vector3(x=0.05, y=0.05, z=0.02),
+        ),
+        threat_object=SpaceObject(
+            object_id="SAT-F-001",
+            object_name="CommsSat-Zeta",
+            object_type="satellite",
+            position=Vector3(x=6890.3, y=200.1, z=0.02),
+            velocity=Vector3(x=-0.2, y=-7.48, z=0.01),
+            covariance_diagonal=Vector3(x=0.05, y=0.05, z=0.02),
+        ),
+        miss_distance_m=195.0,
+        probability_of_collision=0.0016,
+        threat_level=ThreatLevel.HIGH,
+        relative_velocity=Vector3(x=-0.5, y=-14.93, z=0.01),
+        time_to_tca_seconds=10 * 3600,
+        weather_parameters={"solar_flux_f10_7": 145.0, "kp_index": 2},
+    )
+
+
+def get_six_satellite_alert(pair: str) -> CollisionAlert:
+    """Get collision alert for a six-satellite pair. pair in ('ab', 'cd', 'ef')."""
+    factories = {
+        "ab": make_six_satellite_alert_ab,
+        "cd": make_six_satellite_alert_cd,
+        "ef": make_six_satellite_alert_ef,
+    }
+    factory = factories.get(pair.lower())
+    if factory is None:
+        raise ValueError(f"Unknown six_satellite pair '{pair}'. Use ab, cd, or ef.")
+    return factory()
+
+
 ALL_SCENARIOS = {
     "head_on": make_head_on_collision,
     "debris": make_debris_avoidance,

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from src.agents.llm import get_llm
@@ -22,6 +23,7 @@ from src.models.negotiation import NegotiationMessage
 from src.models.physics import CollisionAlert
 from src.physics_interface.mock import (
     get_mock_alert,
+    get_six_satellite_alert,
     make_three_way_alert_ac,
     make_three_way_alert_bc,
 )
@@ -322,6 +324,134 @@ async def _run_three_satellite_simulation(
 
     _emit_stream_event(stream_queue, "simulation_end", None)
     return decisions, results[0]
+
+
+# Six-satellite pairs: A↔B, C↔D, E↔F — each runs for pair_duration_seconds
+SIX_SAT_PAIRS = [
+    ("A↔B", "ab"),
+    ("C↔D", "cd"),
+    ("E↔F", "ef"),
+]
+
+
+async def _run_six_satellite_pair(
+    pair_label: str,
+    pair_key: str,
+    llm,
+    message_logs: dict[str, list[MessageLog]],
+    stream_queue: asyncio.Queue[dict] | None,
+    pair_duration_seconds: float = 20.0,
+) -> tuple[ManeuverDecision | None, dict]:
+    """Run a single 2-satellite pair from the six-satellite scenario."""
+    start = time.monotonic()
+
+    _emit_stream_event(
+        stream_queue, "simulation_start", pair_label,
+        {"scenario": "six_satellite", "pair": pair_label},
+    )
+
+    alert_a = get_six_satellite_alert(pair_key)
+    alert_b = _mirror_alert(alert_a)
+
+    sat_a_id = alert_a.our_object.object_id
+    sat_b_id = alert_a.threat_object.object_id
+
+    log_ab = MessageLog()
+    message_logs[pair_label] = [log_ab]
+
+    if stream_queue:
+        a_to_b = StreamableChannel(
+            message_log=log_ab, stream_queue=stream_queue, pair_label=pair_label
+        )
+        b_to_a = StreamableChannel(
+            message_log=log_ab, stream_queue=stream_queue, pair_label=pair_label
+        )
+    else:
+        a_to_b = InMemoryChannel(message_log=log_ab)
+        b_to_a = InMemoryChannel(message_log=log_ab)
+
+    initiator_graph = build_initiator_graph(
+        llm=llm,
+        send_channel=a_to_b,
+        receive_channel=b_to_a,
+        stream_queue=stream_queue,
+        pair_label=pair_label,
+    )
+    responder_graph = build_responder_graph(
+        llm=llm,
+        send_channel=b_to_a,
+        stream_queue=stream_queue,
+        pair_label=pair_label,
+    )
+
+    initiator_state = make_initiator_state(
+        alert=alert_a,
+        our_id=sat_a_id,
+        peer_id=sat_b_id,
+    )
+
+    initiator_task = asyncio.create_task(initiator_graph.ainvoke(initiator_state))
+    responder_task = asyncio.create_task(
+        _run_responder_loop(
+            responder_graph=responder_graph,
+            alert=alert_b,
+            our_id=sat_b_id,
+            peer_id=sat_a_id,
+            receive_channel=a_to_b,
+            send_channel=b_to_a,
+        )
+    )
+
+    initiator_result = await initiator_task
+    responder_task.cancel()
+    try:
+        await responder_task
+    except asyncio.CancelledError:
+        pass
+
+    decision = initiator_result.get("final_decision")
+    if isinstance(decision, dict):
+        decision = ManeuverDecision.model_validate(decision)
+
+    if decision:
+        _emit_stream_event(
+            stream_queue, "decision", pair_label, decision.model_dump(mode="json")
+        )
+    _emit_stream_event(stream_queue, "simulation_end", pair_label)
+
+    # Pad to pair_duration_seconds so each pair gets 20s before switching
+    elapsed = time.monotonic() - start
+    if elapsed < pair_duration_seconds:
+        await asyncio.sleep(pair_duration_seconds - elapsed)
+
+    return decision, initiator_result
+
+
+async def run_six_satellite_stream(
+    llm_provider: str = "ollama",
+    stream_queue: asyncio.Queue[dict] | None = None,
+    pair_duration_seconds: float = 20.0,
+    loop: bool = True,
+) -> None:
+    """Run 6-satellite scenario: toggle between 3 pairs (A↔B, C↔D, E↔F), 20s each.
+
+    Streams events to stream_queue. Loops forever if loop=True (until client disconnects).
+    """
+    llm = get_llm(llm_provider)
+    message_logs: dict[str, list[MessageLog]] = {}
+
+    while True:
+        for pair_label, pair_key in SIX_SAT_PAIRS:
+            await _run_six_satellite_pair(
+                pair_label=pair_label,
+                pair_key=pair_key,
+                llm=llm,
+                message_logs=message_logs,
+                stream_queue=stream_queue,
+                pair_duration_seconds=pair_duration_seconds,
+            )
+        if not loop:
+            break
 
 
 def _print_result_two(decision: ManeuverDecision | None, scenario: str) -> None:

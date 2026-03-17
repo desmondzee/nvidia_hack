@@ -3,6 +3,8 @@
 Accepts an EnrichedCollisionAlert from satellite_traffic_api and runs the
 LLM-based multi-round negotiation simulation, returning a ManeuverDecision.
 
+Also includes streaming endpoints when run with: uvicorn src.negotiate_api:app --port 8001
+
 Start with:
     uvicorn src.negotiate_api:app --port 8001 --reload
 """
@@ -13,6 +15,7 @@ import os
 
 from fastapi import FastAPI, HTTPException
 
+from src.api.server import app as stream_app
 from src.models.enriched import EnrichedCollisionAlert
 from src.models.maneuver import ManeuverDecision
 from src.simulation.runner import run_simulation_from_alert
@@ -27,10 +30,14 @@ app = FastAPI(
     title="Sentinel Agent API",
     description=(
         "Receives EnrichedCollisionAlert payloads from satellite_traffic_api and "
-        "runs LLM-based multi-round negotiation to produce a ManeuverDecision."
+        "runs LLM-based multi-round negotiation to produce a ManeuverDecision. "
+        "Also includes streaming endpoints for simulation demos."
     ),
     version="1.0.0",
 )
+
+# Include streaming endpoints (six_satellite, etc.) so both entry points work
+app.include_router(stream_app.router)
 
 _LLM_PROVIDER = os.getenv("SENTINEL_LLM_PROVIDER", "nvidia")
 
