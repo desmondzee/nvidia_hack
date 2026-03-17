@@ -101,6 +101,11 @@ class PropagatorAdapter(BaseAdapter[StateVector]):
                 states.append(state)
         return states
 
+    async def propagate_to_time(self, tle: TLERecord, dt: datetime) -> StateVector | None:
+        """Propagate satellite to an arbitrary datetime (e.g. TCA for conjunction mapping)."""
+        sat = Satrec.twoline2rv(tle.line1, tle.line2)
+        return _propagate_to(sat, dt)
+
     async def get_nearby(
         self, tle: TLERecord, catalog: list[TLERecord], radius_km: float | None = None
     ) -> list[TLERecord]:

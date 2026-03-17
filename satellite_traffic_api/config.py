@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     conjunction_lookahead_days: int = 7
     nearby_radius_km: float = 200.0
 
+    # Integration
+    sentinel_agent_url: str = "http://localhost:8001"
+
     # Ground stations
     ground_stations: list[dict[str, Any]] = [
         {"name": "Svalbard", "lat": 78.23, "lon": 15.40, "elevation_m": 458, "min_elevation_deg": 5},

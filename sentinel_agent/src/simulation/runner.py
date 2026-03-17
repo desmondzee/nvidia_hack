@@ -416,6 +416,62 @@ async def run_simulation(
         return decision, result
 
 
+async def run_simulation_from_alert(
+    alert: CollisionAlert,
+    llm_provider: str = "nvidia",
+) -> tuple[ManeuverDecision | None, dict]:
+    """Run 2-satellite negotiation from a real CollisionAlert (not a mock scenario).
+
+    The alert represents the initiating satellite's perspective. A mirrored
+    alert is generated for the peer (threat object acts as 'our' satellite).
+    """
+    message_logs: dict[str, list[MessageLog]] = {}
+    llm = get_llm(llm_provider)
+
+    sat_a_id = alert.our_object.object_id
+    sat_b_id = alert.threat_object.object_id
+    pair_label = f"{sat_a_id}↔{sat_b_id}"
+
+    log_ab = MessageLog()
+    message_logs[pair_label] = [log_ab]
+
+    a_to_b = InMemoryChannel(message_log=log_ab)
+    b_to_a = InMemoryChannel(message_log=log_ab)
+
+    initiator_graph = build_initiator_graph(llm=llm, send_channel=a_to_b, receive_channel=b_to_a)
+    responder_graph = build_responder_graph(llm=llm, send_channel=b_to_a)
+
+    initiator_state = make_initiator_state(alert=alert, our_id=sat_a_id, peer_id=sat_b_id)
+    alert_b = _mirror_alert(alert)
+
+    initiator_task = asyncio.create_task(initiator_graph.ainvoke(initiator_state))
+    responder_task = asyncio.create_task(
+        _run_responder_loop(
+            responder_graph=responder_graph,
+            alert=alert_b,
+            our_id=sat_b_id,
+            peer_id=sat_a_id,
+            receive_channel=a_to_b,
+            send_channel=b_to_a,
+        )
+    )
+
+    initiator_result = await initiator_task
+    responder_task.cancel()
+    try:
+        await responder_task
+    except asyncio.CancelledError:
+        pass
+
+    _print_communications(message_logs)
+
+    decision = initiator_result.get("final_decision")
+    if isinstance(decision, dict):
+        decision = ManeuverDecision.model_validate(decision)
+
+    return decision, initiator_result
+
+
 async def main():
     """Run the default simulation."""
     logging.basicConfig(

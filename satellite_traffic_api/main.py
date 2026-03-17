@@ -16,7 +16,7 @@ from satellite_traffic_api.adapters.propagator import PropagatorAdapter
 from satellite_traffic_api.adapters.nrlmsise import NRLMSISEAdapter
 from satellite_traffic_api.adapters.ground_station import GroundStationAdapter
 from satellite_traffic_api.aggregator.context_builder import SatelliteContextBuilder
-from satellite_traffic_api.routers import context, orbital, conjunctions, space_weather, ground_stations, scenarios
+from satellite_traffic_api.routers import context, orbital, conjunctions, space_weather, ground_stations, scenarios, negotiate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -108,6 +108,7 @@ app.include_router(orbital.router,        prefix="/v1")
 app.include_router(conjunctions.router,   prefix="/v1")
 app.include_router(space_weather.router,  prefix="/v1")
 app.include_router(ground_stations.router, prefix="/v1")
+app.include_router(negotiate.router,      prefix="/v1")
 
 
 @app.get("/v1/health")

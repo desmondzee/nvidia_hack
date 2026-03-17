@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from satellite_traffic_api.models.context import SatelliteContext, RiskLevel
 from satellite_traffic_api.models.conjunction import ConjunctionEvent
 from satellite_traffic_api.models.space_weather import SpaceWeatherSummary
+from satellite_traffic_api.ml.collision_classifier import CollisionClassifier
 
 if TYPE_CHECKING:
     from satellite_traffic_api.adapters.celestrak import CelesTrakAdapter
@@ -17,6 +18,15 @@ if TYPE_CHECKING:
     from satellite_traffic_api.adapters.ground_station import GroundStationAdapter
 
 logger = logging.getLogger(__name__)
+
+# Trained once at module load — cheap (~400 samples, 50 trees)
+_classifier = CollisionClassifier()
+
+_RISK_ORDER: dict[RiskLevel, int] = {"NOMINAL": 0, "ELEVATED": 1, "HIGH": 2, "CRITICAL": 3}
+
+
+def _max_risk(a: RiskLevel, b: RiskLevel) -> RiskLevel:
+    return a if _RISK_ORDER[a] >= _RISK_ORDER[b] else b
 
 
 def _compute_risk(
@@ -116,8 +126,10 @@ class SatelliteContextBuilder:
         )
         nearby = await self.propagator.get_nearby(tle, active_catalog)
 
-        # Step 5: Assemble
-        risk = _compute_risk(conjunctions, space_weather)
+        # Step 5: Assemble — take the more severe of rule-based and ML classification
+        rule_risk = _compute_risk(conjunctions, space_weather)
+        ml_risk = _classifier.predict_risk(conjunctions, space_weather)
+        risk = _max_risk(rule_risk, ml_risk)
         high_risk = [
             c for c in conjunctions
             if c.miss_distance_km < 1.0 or (c.collision_probability or 0) > 1e-4
