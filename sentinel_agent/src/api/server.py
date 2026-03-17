@@ -47,10 +47,10 @@ async def _event_generator(
     try:
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=300.0)
+                event = await asyncio.wait_for(queue.get(), timeout=15.0)
             except asyncio.TimeoutError:
-                yield f"data: {json.dumps({'type': 'timeout', 'data': {}})}\n\n"
-                break
+                yield ": keepalive\n\n"
+                continue
 
             if event is None:
                 break
@@ -189,10 +189,11 @@ async def _six_satellite_event_generator(
     try:
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=300.0)
+                # 15s timeout: yield keepalive to prevent connection drop during slow LLM calls
+                event = await asyncio.wait_for(queue.get(), timeout=15.0)
             except asyncio.TimeoutError:
-                yield f"data: {json.dumps({'type': 'timeout', 'data': {}})}\n\n"
-                break
+                yield ": keepalive\n\n"
+                continue
 
             if event is None:
                 break

@@ -131,6 +131,8 @@ curl http://localhost:8001/v1/simulation/stream/six_satellite/status
 
 Each SSE event is JSON with `type`, `pair_label`, `timestamp`, and `data`.
 
+**If you only see `simulation_start` and then nothing:** The first LLM call can take 30–60s. The stream sends keepalive comments every 15s to prevent timeouts. If it still hangs, ensure Ollama is reachable from the server: when the API runs on a remote host (e.g. 10.1.96.155), set `OLLAMA_BASE_URL=http://<ollama-host>:11434` in `.env` so the API can reach Ollama.
+
 ## Project Structure
 
 ```
