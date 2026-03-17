@@ -17,6 +17,9 @@ from satellite_traffic_api.adapters.nrlmsise import NRLMSISEAdapter
 from satellite_traffic_api.adapters.ground_station import GroundStationAdapter
 from satellite_traffic_api.aggregator.context_builder import SatelliteContextBuilder
 from satellite_traffic_api.routers import context, orbital, conjunctions, space_weather, ground_stations, scenarios, negotiate
+from satellite_traffic_api.routers.negotiate import run_negotiate_pipeline
+
+_DEMO_NORAD_ID = 25544  # ISS — matches hero_collision.json
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -146,6 +149,40 @@ async def reset_demo_step():
 async def get_demo_step():
     """Get the current demo step."""
     return {"step": ScenarioState.get().current_step}
+
+
+@app.post("/v1/demo/run")
+async def run_demo_pipeline():
+    """
+    Run the full hero_collision scenario end-to-end through detection and negotiation.
+
+    Iterates through all 4 scenario steps, builds SatelliteContext (live data +
+    synthetic conjunctions + XGBoost risk classification) at each step, and triggers
+    sentinel_agent negotiation for any HIGH or CRITICAL steps.
+
+    Returns one result per step with status, risk level, alert, and negotiation outcome.
+    """
+    ScenarioState.get().reset()
+    results = []
+
+    for step_num in range(1, 5):
+        if step_num > 1:
+            new_step = ScenarioState.get().advance()
+            # Bust scenario adapter cache so the new step's conjunction data is fetched
+            if app.state.scenario_id:
+                await app.state.cache.delete(
+                    f"scenario:{app.state.scenario_id}:step:{new_step - 1}:{_DEMO_NORAD_ID}"
+                )
+
+        step_result = await run_negotiate_pipeline(
+            norad_id=_DEMO_NORAD_ID,
+            builder=app.state.context_builder,
+            celestrak=app.state.celestrak,
+            propagator=app.state.propagator,
+        )
+        results.append({"step": step_num, **step_result})
+
+    return {"scenario": app.state.scenario_id or "live", "steps": results}
 
 
 @app.get("/v1/tools")

@@ -78,20 +78,19 @@ def _worst_conjunction(
     return sorted(high_risk, key=lambda c: (c.miss_distance_km, c.tca))[0]
 
 
-@router.post("/satellites/{norad_id}/negotiate")
-async def trigger_negotiation(
+async def run_negotiate_pipeline(
     norad_id: int,
-    builder=Depends(_get_builder),
-    celestrak=Depends(_get_celestrak),
-    propagator=Depends(_get_propagator),
+    builder,
+    celestrak,
+    propagator,
 ) -> dict:
     """
-    Detect high-risk conjunctions for a satellite and trigger sentinel_agent negotiation.
+    Core negotiate logic, callable directly (not just via HTTP).
 
     Returns:
       - status="no_action" if risk < HIGH
       - status="triggered" with alert + sentinel_agent response if risk >= HIGH
-      - status="alert_only" if sentinel_agent is unreachable but alert was built
+      - status="alert_only" if sentinel_agent unreachable but alert was built
     """
     # Step 1: Build full satellite context
     try:
@@ -274,3 +273,17 @@ async def trigger_negotiation(
         "alert": alert_dict,
         "negotiation_result": sentinel_response,
     }
+
+
+@router.post("/satellites/{norad_id}/negotiate")
+async def trigger_negotiation(
+    norad_id: int,
+    builder=Depends(_get_builder),
+    celestrak=Depends(_get_celestrak),
+    propagator=Depends(_get_propagator),
+) -> dict:
+    """
+    Detect high-risk conjunctions for a satellite and trigger sentinel_agent negotiation.
+    Delegates to run_negotiate_pipeline().
+    """
+    return await run_negotiate_pipeline(norad_id, builder, celestrak, propagator)
