@@ -1,0 +1,92 @@
+{
+  "scenario_id": "hero_collision",
+  "description": "ISS and Starlink-1007 near-collision \u2014 4-step escalation and resolution",
+  "generated_from_real_data": true,
+  "satellites": {
+    "primary": {
+      "norad_id": 25544,
+      "name": "ISS (ZARYA)",
+      "altitude_km": 433.69,
+      "inclination_deg": 51.6338,
+      "speed_km_s": 7.6498,
+      "operator": "ISS Program / Multi-national"
+    },
+    "secondary": {
+      "norad_id": 44713,
+      "name": "STARLINK-1007",
+      "altitude_km": 476.51,
+      "inclination_deg": 53.1559,
+      "speed_km_s": 7.6331,
+      "operator": "SpaceX"
+    }
+  },
+  "steps": [
+    {
+      "step": 1,
+      "label": "NOMINAL",
+      "risk_level": "NOMINAL",
+      "tca_minutes_from_now": 95,
+      "miss_distance_km": 35,
+      "collision_probability": null,
+      "relative_speed_km_s": 7.65,
+      "radial_miss_m": 35000,
+      "in_track_miss_m": 0,
+      "cross_track_miss_m": 0,
+      "narrative": "Routine pass, no concern."
+    },
+    {
+      "step": 2,
+      "label": "HIGH",
+      "risk_level": "HIGH",
+      "tca_minutes_from_now": 68,
+      "miss_distance_km": 0.8,
+      "collision_probability": 5e-05,
+      "relative_speed_km_s": 7.65,
+      "radial_miss_m": 800,
+      "in_track_miss_m": 0,
+      "cross_track_miss_m": 0,
+      "narrative": "Updated tracking narrows the conjunction to a high\u2011risk proximity."
+    },
+    {
+      "step": 3,
+      "label": "CRITICAL",
+      "risk_level": "CRITICAL",
+      "tca_minutes_from_now": 24,
+      "miss_distance_km": 0.15,
+      "collision_probability": 0.0007,
+      "relative_speed_km_s": 7.65,
+      "radial_miss_m": 150,
+      "in_track_miss_m": 0,
+      "cross_track_miss_m": 0,
+      "narrative": "Final analysis confirms a critical collision threat."
+    },
+    {
+      "step": 4,
+      "label": "RESOLVED",
+      "risk_level": "NOMINAL",
+      "tca_minutes_from_now": 0,
+      "miss_distance_km": 18,
+      "collision_probability": null,
+      "relative_speed_km_s": 7.65,
+      "radial_miss_m": 18000,
+      "in_track_miss_m": 0,
+      "cross_track_miss_m": 0,
+      "narrative": "ISS performed a posigrade burn, clearing the conjunction."
+    }
+  ],
+  "maneuver": {
+    "executing_satellite": "ISS (ZARYA)",
+    "maneuver_type": "posigrade burn",
+    "delta_v_m_s": 0.8,
+    "burn_duration_seconds": 380,
+    "altitude_change_km": 0.3,
+    "executed_at_minutes_before_tca": 22
+  },
+  "generated_at": "2026-03-17T21:27:33.513733+00:00",
+  "grounded_from": {
+    "iss_altitude_km": 433.6871101472525,
+    "starlink_altitude_km": 476.5109727163135,
+    "space_weather_kp": 0.0,
+    "api_url": "http://localhost:8001"
+  }
+}
